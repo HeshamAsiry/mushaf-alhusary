@@ -1,0 +1,59 @@
+name: Test Neon and R2 connections
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-connections:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test Neon and R2
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+        run: |
+          npm init -y
+          npm install @neondatabase/serverless @aws-sdk/client-s3
+
+          node <<'NODE'
+          const { neon } = require("@neondatabase/serverless");
+          const { S3Client, HeadBucketCommand } = require("@aws-sdk/client-s3");
+
+          async function main() {
+            const sql = neon(process.env.DATABASE_URL);
+            await sql`select 1 as ok`;
+            console.log("Neon: OK");
+
+            const r2 = new S3Client({
+              region: "auto",
+              endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+              credentials: {
+                accessKeyId: process.env.R2_ACCESS_KEY_ID,
+                secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+              },
+            });
+
+            await r2.send(new HeadBucketCommand({
+              Bucket: process.env.R2_BUCKET_NAME,
+            }));
+            console.log("R2: OK");
+            console.log("ALL CONNECTIONS: OK");
+          }
+
+          main().catch((error) => {
+            console.error("Connection test failed.");
+            console.error(error.name || "UnknownError");
+            process.exit(1);
+          });
+          NODE
